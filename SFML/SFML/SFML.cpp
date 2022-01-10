@@ -7,7 +7,6 @@
 #include <chrono>
 #include <fstream>
 
-
 static std::chrono::steady_clock::time_point start_time = std::chrono::high_resolution_clock::now();
 const double PI = 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679;
 
@@ -104,17 +103,26 @@ private:
 	}
 };
 
+double
+	k = 360E6,
+	c = 5.7E9,
+	mu = 38E9,
+	a = 1,
+	b = 10,
+	p = 0.5E9,
+	q = 2E9,
+	rs = (a + b) * 0.5;
+
+double Err(double rs)
+{
+	return (-p + k * (rs * rs / (b * b) - 1)) - (-q + c * k / (2 * mu + c) * (rs * rs / (a * a) - 1) + 4 * k * mu / (2 * mu + c) * std::log(rs / a));
+}
 
 void main()
 {
 	uint16_t H = 800, W = H;
 
 	std::srand(std::time(0));
-
-	sf::ContextSettings context_setting(0, 0, 0);
-	sf::RenderWindow window(sf::VideoMode(H, W), "SFML window", sf::Style::Default, context_setting);
-	sf::CircleShape shape(100.f);
-	shape.setFillColor(sf::Color::Green);
 
 	int Count = 500;
 
@@ -131,65 +139,29 @@ void main()
 		* ys = new float[Count],
 		* xs = new float[Count];
 
-	float
-		k = 785,
-		c = 10,
-		mu = 250000,
-		a = 1,
-		b = 10,
-		p = 100,
-		q = 3000,
-		rs = (a + b) * 0.5;
-
-#define ERRR (-p + k * (rs * rs / (b * b) - 1)) - (-q + c * k / (2 * mu + c) * (rs * rs / (a * a) - 1) + 4 * k * mu / (2 * mu + c) * std::log(rs / a))
-
-	float err = ERRR;
-
-	err = err * err;
-
-	float V[10][2]
+	double ors = rs;
 	{
-
-	};
-
-	int best = 0;
-
-	for (int i = 0; i < 10; i++)
-	{
+		double
+			r1 = a,
+			r2 = b;
+		int i = 0;
+		for (; i < 10000000; i++)
 		{
-			V[i][0] = gausrand((a + b) * 0.5, 1);
+			double err1 = Err(r1 + (r2 - r1) * 0.25);
+			err1 *= err1;
+			double err2 = Err(r1 + (r2 - r1) * 0.75);
+			err2 *= err2;
+			if (err1 < err2)
+				r2 = (r1 + r2) * 0.5;
+			else
+				r1 = (r1 + r2) * 0.5;
 
-			float err = ERRR;
-			err = err * err;
-			V[i][1] = err;
-			if (V[i][1] < V[best][1])
-				best = i;
+			if (err1 == 0 and err2 == 0)
+				break;
 		}
+		std::cout << i;
+		rs = (r1 + r2) * 0.5;
 	}
-
-
-	for (int i = 0; i < 10000000; i++)
-	{
-		int j = i % 10;
-		float
-			rs = gausrand(V[j][0], 1) * 0.8 + gausrand(V[best][0], 1) * 0.2;
-
-		float err = ERRR;
-
-		err = err * err;
-
-		if (err < V[j][1])
-		{
-			V[j][1] = err;
-			V[j][0] = rs;
-			if (V[j][1] < V[best][1])
-				best = j;
-		}
-
-	}
-
-
-
 
 	for (int i = 0; i < Count; i++)
 		BaseExp[i].position.x =
@@ -206,11 +178,61 @@ void main()
 	auto t_start = std::chrono::high_resolution_clock::now();
 
 	float
-		RS = V[best][0],
+		RS = rs,
 		A = k * RS * RS / (2 * mu);
+
 
 	float fps = 0, K = 0;
 	std::ofstream log("log.txt");
+
+
+	sf::ContextSettings context_setting(0, 0, 0);
+	sf::RenderWindow window(sf::VideoMode(H, W), "SFML window", sf::Style::Default, context_setting);
+	sf::CircleShape shape(100.f);
+	shape.setFillColor(sf::Color::Green);
+
+
+	std::ofstream fout("out.csv");
+
+	fout << std::scientific << "r" << ',' << "sr" << ',' << "st" << '\n';
+
+	for (int i = 0; i < Count; i++)
+	{
+		float
+			u = (i) / float(Count - 1),
+			rs = b * u + a * (1 - u),
+			x = H * 0.05 * u + H * 0.95 * (1 - u);
+
+		float err = Err(rs);
+		err = err * err;
+
+		Base[i].position.x = x;
+		Base[i].position.y = err;
+
+		float
+			sr = (rs > RS
+				? -p + 2 * mu * A * (1 / (b * b) - 1 / (rs * rs))
+				: -q + 2 * mu / (2 * mu + c) * (c * A * (1 / (a * a) - 1 / (rs * rs)) + 2 * k * std::log(abs(rs / a)))),
+
+			st = (rs > RS
+				? -p + 2 * mu * A * (1 / (b * b) + 1 / (rs * rs))
+				: -q + 2 * mu / (2 * mu + c) * (c * A * (1 / (a * a) + 1 / (rs * rs)) + 2 * k * (1 + std::log(abs(rs / a)))));
+
+		fout << rs << ',' << sr << ',' << st << '\n';
+
+		Exp1[i].position.x = x;
+		Exp1[i].position.y = sr * 0.000001 + W / 2.0;
+
+		Exp2[i].position.x = x;
+		Exp2[i].position.y = st * 0.000001 + W / 2.0;
+
+		Ideal[i].position.x = x;
+		Ideal[i].position.y = W / 2.0;
+	}
+
+	return;
+
+
 	for (uint64_t t = 0; window.isOpen(); t++)
 	{
 		t_end = std::chrono::high_resolution_clock::now();
@@ -225,37 +247,6 @@ void main()
 		}
 		// Frame Math
 		float emax = 0;
-		for (int i = 0; i < Count; i++)
-		{
-			float
-				u = (i) / float(Count - 1),
-				rs = a * u + b * (1 - u),
-				x = H * 0.05 * u + H * 0.95 * (1 - u);
-
-			float err = ERRR;
-			err = err * err;
-
-			Base[i].position.x = x;
-			Base[i].position.y = err;
-			emax = fmax(err, emax);
-
-			float
-				sr = (rs > RS
-					? -p + 2 * mu * A * (1 / (b * b) - 1 / (rs * rs))
-					: -q + 2 * mu / (2 * mu + c) * (c * A * (1 / (a * a) - 1 / (rs * rs)) + 2 * k * std::log(abs(rs / a)))),
-				st = (rs > RS
-					? -p + 2 * mu * A * (1 / (b * b) + 1 / (rs * rs))
-					: -q + 2 * mu / (2 * mu + c) * (c * A * (1 / (a * a) + 1 / (rs * rs)) + 2 * k * (1 + std::log(abs(rs / a)))));
-
-			Exp1[i].position.x = x;
-			Exp1[i].position.y = sr * 0.1 + W / 2.0;
-
-			Exp2[i].position.x = x;
-			Exp2[i].position.y = st * 0.1 + W / 2.0;
-
-			Ideal[i].position.x = x;
-			Ideal[i].position.y = W / 2.0;
-		}
 
 		for (int i = 0; i < Count; i++)
 		{
